@@ -6,31 +6,14 @@ from matplotlib.pyplot import cm
 from sklearn.externals.joblib import Memory
 from nilearn._utils.compat import _basestring
 from .io_utils import (niigz2nii as do_niigz2nii, 
-                       # dcm2nii as do_dcm2nii,
                        nii2niigz as do_nii2niigz,
-                       # isdicom, 
-                       # delete_orientation, 
                        hard_link, 
                        get_shape,
                        is_4D, 
                        is_3D, 
                        get_basenames, 
                        is_niimg)
-# from .reporting.base_reporter import (
-#     commit_subject_thumnbail_to_parent_gallery,
-#     ResultsGallery, Thumbnail, a, img, copy_web_conf_files,
-#     ProgressReport, get_subject_report_html_template,
-#     get_subject_report_preproc_html_template, copy_failed_png)
 
-# from .reporting.preproc_reporter import (generate_tsdiffana_thumbnail,
-#                                          generate_realignment_thumbnails,
-#                                          generate_coregistration_thumbnails,
-#                                          generate_normalization_thumbnails,
-#                                          generate_segmentation_thumbnails,
-#                                          make_nipype_execution_log_html)
-
-
-# tooltips for thumbnails in report pages
 mc_tooltip = ("Motion parameters estimated during motion-"
               "correction. If motion is less than half a "
               "voxel, it's generally OK. Moreover, it's "
@@ -129,7 +112,7 @@ class SubjectData(object):
                  session_ids=None, output_dir=None, session_output_dirs=None,
                  anat_output_dir=None, scratch=None, warpable=None, **kwargs):
         if warpable is None:
-            warpable = ['anat', 'func']
+            warpable = ['anat', 'func'] 
         self.func = func
         self.anat = anat
         self.subject_id = subject_id
@@ -392,7 +375,6 @@ class SubjectData(object):
         self.n_sessions = len(self.session_ids)
 
     def sanitize(self, 
-                # deleteorient=False, 
                 niigz2nii=False):
         """
         This method does basic sanitization of the `SubjectData` instance, like
@@ -401,10 +383,6 @@ class SubjectData(object):
 
         Parameters
         ----------
-        deleteorient: bool (optional)
-            if true, then orientation meta-data in all input image files
-            for this subject will be stripped-off
-
         niigz2nii: bool, optional (default False)
             convert func and ant .nii.gz images to .nii
 
@@ -426,14 +404,7 @@ class SubjectData(object):
             return self
         self._set_session_ids()
 
-        # .dcm, .ima -> .nii
-        # self._dcm2nii()
-
-        # delete orientation meta-data
-        # if deleteorient:
-        #     self._delete_orientation()
-
-        # .nii.gz -> .nii extraction for SPM & co.
+        # .nii.gz -> .nii extraction for SPM 
         if niigz2nii:
             self._niigz2nii()
 
@@ -447,435 +418,8 @@ class SubjectData(object):
         self._set_session_ids()
         return self
 
-    def save_realignment_parameters(self, lkp=6):
-        if not hasattr(self, "realignment_parameters"):
-            return
-        rp_filenames = []
-        for sess in range(self.n_sessions):
-            sess_rps = getattr(self, "realignment_parameters")[sess]
-            if isinstance(sess_rps, _basestring):
-                rp_filenames.append(sess_rps)
-            else:
-                sess_basename = self.basenames[sess]
-                if not isinstance(sess_basename, _basestring):
-                    sess_basename = sess_basename[0]
-
-                rp_filename = os.path.join(
-                    self.scratch,
-                    "rp_" + sess_basename + ".txt")
-                np.savetxt(rp_filename, sess_rps[..., :lkp])
-                rp_filenames.append(rp_filename)
-        setattr(self, "realignment_parameters", rp_filenames)
-        return rp_filenames
-
-    def hardlink_output_files(self, final=False):
-        """
-        Hard-links output files to subject's immediate output directory.
-
-        Parameters
-        ----------
-        final: bool, optional (default False)
-            flag indicating whether, we're finalizing the preprocessing
-            pipeline
-
-        """
-        self._set_session_ids()
-
-        # anat stuff
-        for item in ['anat', 'gm', 'wm', 'csf', 'wgm', 'wwm', 'wcsf',
-                     'mwgm', 'mwwm', 'mwcsf']:
-            if hasattr(self, item):
-                filename = getattr(self, item)
-                if filename is not None:
-                    filename = do_nii2niigz(filename, self.anat_scratch_dir)
-                    linked_filename = hard_link(filename,
-                                                self.anat_output_dir)
-            if final:
-                setattr(self, item, linked_filename)
-
-        # func stuff
-        self.save_realignment_parameters()
-        for item in ['func', 'realignment_parameters']:
-            tmp = []
-            if hasattr(self, item):
-                filenames = getattr(self, item)
-                if isinstance(filenames, _basestring):
-                    assert self.n_sessions == 1, filenames
-                    filenames = [filenames]
-                for sess in range(self.n_sessions):
-                    filename = filenames[sess]
-                    if filename is not None:
-                        # gzip before hard link
-                        if item == 'func':
-                            filename = do_nii2niigz(filename)
-                        linked_filename = hard_link(
-                            filename, self.session_output_dirs[sess])
-                        tmp.append(linked_filename)
-            if final:
-                setattr(self, item, tmp)
-
-    # def init_report(self, parent_results_gallery=None,
-    #                 tsdiffana=True, preproc_undergone=None):
-    #     """
-    #     This method is invoked to initialize the reports factory for the
-    #     subject. It configures everything necessary for latter reporting:
-    #     copies the custom .css, .js, etc. files, generates markup for
-    #     the report pages (report.html, report_log.html, report_preproc.html,
-    #     etc.), etc.
-
-    #     Parameters
-    #     ----------
-    #     parent_results_gallery: reporting.base_reporter.ResultsGallery instance
-
-    #     tsdiffana: bool, optional
-    #         if set, six figures are added to characterize differences between
-    #         consecutive time points in the times series for artefact detection
-    #     preproc_undergone: list of strings,
-    #         list of processing steps performed
-
-    #     """
-    #     # misc
-    #     self._set_session_ids()
-    #     if not self.func:
-    #         tsdiffana = False
-
-    #     # make sure output_dir is OK
-    #     self._sanitize_output_dirs()
-
-    #     # misc for reporting
-    #     self.reports_output_dir = os.path.join(self.output_dir, "reports")
-    #     if not os.path.exists(self.reports_output_dir):
-    #         os.makedirs(self.reports_output_dir)
-    #     self.report = True
-    #     self.results_gallery = None
-    #     self.parent_results_gallery = parent_results_gallery
-    #     self.tsdiffana = tsdiffana
-
-    #     # report filenames
-    #     self.report_log_filename = os.path.join(
-    #         self.reports_output_dir, 'report_log.html')
-    #     self.report_preproc_filename = os.path.join(
-    #         self.reports_output_dir, 'report_preproc.html')
-    #     self.report_filename = os.path.join(self.reports_output_dir,
-    #                                         'report.html')
-
-    #     # clean report files
-    #     open(self.report_log_filename, 'w').close()
-    #     open(self.report_preproc_filename, 'w').close()
-    #     open(self.report_filename, 'w').close()
-
-    #     # initialize results gallery
-    #     loader_filename = os.path.join(self.reports_output_dir,
-    #                                    "results_loader.php")
-    #     self.results_gallery = ResultsGallery(
-    #         loader_filename=loader_filename,
-    #         title="Report for subject %s" % self.subject_id)
-
-    #     # final thumbnail most representative of this subject's QA
-    #     self.final_thumbnail = Thumbnail()
-    #     self.final_thumbnail.a = a(
-    #         href=self.report_preproc_filename)
-    #     self.final_thumbnail.img = img(src=None)
-    #     self.final_thumbnail.description = self.subject_id
-
-    #     # copy web stuff to subject output dir
-    #     copy_web_conf_files(self.reports_output_dir)
-
-    #     # initialize progress bar
-    #     self.progress_logger = ProgressReport(
-    #         self.report_log_filename,
-    #         other_watched_files=[self.report_preproc_filename])
-
-    #     # html markup
-    #     preproc = get_subject_report_preproc_html_template(
-    #         results=self.results_gallery, start_time=time.ctime(),
-    #         preproc_undergone=preproc_undergone, subject_id=self.subject_id)
-    #     main_html = get_subject_report_html_template(
-    #         start_time=time.ctime(), subject_id=self.subject_id)
-    #     with open(self.report_preproc_filename, 'w') as fd:
-    #         fd.write(str(preproc))
-    #         fd.close()
-    #     with open(self.report_filename, 'w') as fd:
-    #         fd.write(str(main_html))
-    #         fd.close()
-
-    # def finalize_report(self, parent_results_gallery=None, last_stage=False):
-    #     """
-    #     Finalizes the business of reporting.
-
-    #     """
-    #     # misc
-    #     self._set_session_ids()
-    #     if not self.reporting_enabled():
-    #         return
-    #     if parent_results_gallery is None:
-    #         parent_results_gallery = self.parent_results_gallery
-
-    #     # generate failure thumbnail
-    #     if self.failed:
-    #         copy_failed_png(self.reports_output_dir)
-    #         self.final_thumbnail.img.src = 'failed.png'
-    #         self.final_thumbnail.description += (
-    #             ' (failed preprocessing)')
-    #     else:
-    #         # generate tsdiffana plots
-    #         if self.tsdiffana:
-    #             generate_tsdiffana_thumbnail(
-    #                 self.func, self.session_ids, self.subject_id,
-    #                 self.reports_output_dir, tooltips=tsdiffana_tooltips,
-    #                 results_gallery=self.results_gallery)
-
-    #     # shut down all watched report pages
-    #     self.progress_logger.finish_all()
-
-    #     # shut down everything in reports_output_dir
-    #     if last_stage:
-    #         self.progress_logger.finish_dir(self.reports_output_dir)
-
-    #     # commit final thumbnail into parent's results gallery
-    #     if parent_results_gallery is not None:
-    #         commit_subject_thumnbail_to_parent_gallery(
-    #             self.final_thumbnail, self.subject_id, parent_results_gallery)
-
-    #     print(("\r\nPreproc report for subject %s written to %s"
-    #           " .\r\n" % (self.subject_id,
-    #                       self.report_preproc_filename)))
-
     def __getitem__(self, key):
         return self.__dict__[key]
-
-    # def reporting_enabled(self):
-    #     """
-    #     Determines whether reporting is enabled for this subject
-
-    #     """
-    #     return hasattr(self, 'results_gallery')
-
-    # def generate_realignment_thumbnails(self, log=True, nipype=True):
-    #     """
-    #     Invoked to generate post-realignment thumbnails.
-
-    #     """
-    #     # misc
-    #     self._set_session_ids()
-    #     if not hasattr(self, 'realignment_parameters'):
-    #         raise ValueError("'realignment_parameters' attribute not set!")
-    #     if not self.reporting_enabled():
-    #         self.init_report()
-
-    #     # log execution
-    #     if log:
-    #         execution_log_html = None
-    #         if nipype:
-    #             execution_log_html = make_nipype_execution_log_html(
-    #                 self.func, "Motion_Correction",
-    #                 self.reports_output_dir)
-    #         self.progress_logger.log(
-    #             "<b>Motion Correction</b><br/>")
-    #         if execution_log_html:
-    #             self.progress_logger.log(open(execution_log_html).read())
-    #             self.progress_logger.log('<hr/>')
-
-    #     # generate thumbnails proper
-    #     thumbs = generate_realignment_thumbnails(
-    #         getattr(self, 'realignment_parameters'),
-    #         self.reports_output_dir, sessions=self.session_ids,
-    #         execution_log_html_filename=execution_log_html if log
-    #         else None, tooltip=mc_tooltip,
-    #         results_gallery=self.results_gallery)
-    #     self.final_thumbnail.img.src = thumbs['rp_plot']
-
-    # def generate_coregistration_thumbnails(self, coreg_func_to_anat=True,
-    #                                        log=True, comment=True,
-    #                                        nipype=True):
-    #     """
-    #     Invoked to generate post-coregistration thumbnails.
-
-    #     """
-    #     # misc
-    #     self._set_session_ids()
-    #     if self.anat is None:
-    #         print("Subject 'anat' field is None; nothing to do")
-    #         return
-
-    #     # misc
-    #     if not self.reporting_enabled():
-    #         self.init_report()
-    #     src, ref = self.func, self.anat
-    #     src_brain, ref_brain = "mean_functional_image", "anatomical_image"
-    #     if not coreg_func_to_anat:
-    #         src, ref = ref, src
-    #         src_brain, ref_brain = ref_brain, src_brain
-
-    #     # log execution
-    #     if log:
-    #         execution_log_html = None
-    #         if nipype:
-    #             execution_log_html = make_nipype_execution_log_html(
-    #                 src, "Coregister",
-    #                 self.reports_output_dir)
-    #         self.progress_logger.log(
-    #             "<b>Coregistration</b><br/>")
-    #         if execution_log_html:
-    #             self.progress_logger.log(open(execution_log_html).read())
-    #             self.progress_logger.log('<hr/>')
-
-    #     # generate thumbs proper
-    #     thumbs = generate_coregistration_thumbnails(
-    #         (ref, ref_brain), (src, src_brain),
-    #         self.reports_output_dir,
-    #         execution_log_html_filename=execution_log_html if log
-    #         else None, results_gallery=self.results_gallery,
-    #         comment=comment, tooltip=reg_tooltip)
-    #     self.final_thumbnail.img.src = thumbs['axial']
-
-    # def generate_segmentation_thumbnails(self, log=True, nipype=True):
-    #     """
-    #     Invoked to generate post-segmentation thumbnails.
-
-    #     """
-    #     # misc
-    #     self._set_session_ids()
-    #     segmented = False
-    #     for item in ['gm', 'wm', 'csf']:
-    #         if hasattr(self, item):
-    #             segmented = True
-    #             break
-    #     if not segmented:
-    #         return
-    #     if not self.reporting_enabled():
-    #         self.init_report()
-
-    #     # log execution
-    #     if log:
-    #         execution_log_html = None
-    #         if nipype:
-    #             execution_log_html = make_nipype_execution_log_html(
-    #                 getattr(self, 'gm') or getattr(self, 'wm') or getattr(
-    #                     self, 'csf'), "Segment", self.reports_output_dir)
-    #         self.progress_logger.log(
-    #             "<b>Segmentation</b><br/>")
-    #         if execution_log_html:
-    #             self.progress_logger.log(open(execution_log_html).read())
-    #             self.progress_logger.log('<hr/>')
-
-    #     # generate thumbnails proper
-    #     for brain_name, brain, cmap in zip(
-    #             ['anatomical_image', 'mean_functional_image'],
-    #             [self.anat, self.func], [cm.gray, cm.spectral]):
-    #         if not brain:
-    #             continue
-    #         thumbs = generate_segmentation_thumbnails(
-    #             brain, self.reports_output_dir,
-    #             subject_gm_file=getattr(self, 'gm', None),
-    #             subject_wm_file=getattr(self, 'wm', None),
-    #             subject_csf_file=getattr(self, 'csf', None),
-    #             cmap=cmap, brain=brain_name, only_native=True,
-    #             execution_log_html_filename=execution_log_html if log
-    #             else None, results_gallery=self.results_gallery,
-    #             tooltip=segment_tooltip)
-    #         if 'func' in brain_name:
-    #             self.final_thumbnail.img.src = thumbs['axial']
-
-    # def generate_normalization_thumbnails(self, log=True, nipype=True):
-    #     """
-    #     Invoked to generate post-normalization thumbnails.
-
-    #     """
-    #     # misc
-    #     self._set_session_ids()
-    #     if not self.reporting_enabled():
-    #         self.init_report()
-    #     warped_tpms = dict(
-    #         (tpm, getattr(self, tpm, None))
-    #         for tpm in ["mwgm", "mwwm", "mwcsf"])
-    #     segmented = list(warped_tpms.values()).count(None) < len(warped_tpms)
-
-    #     # generate thumbnails proper
-    #     for brain_name, brain, cmap in zip(
-    #             ['anatomical_image', 'mean_functional_image'],
-    #             [self.anat, self.func], [cm.gray, cm.spectral]):
-    #         if not brain:
-    #             continue
-
-    #         # generate segmentation thumbs
-    #         if segmented:
-    #             thumbs = generate_segmentation_thumbnails(
-    #                 brain, self.reports_output_dir,
-    #                 subject_gm_file=warped_tpms["mwgm"],
-    #                 subject_wm_file=warped_tpms["mwwm"],
-    #                 subject_csf_file=warped_tpms["mwcsf"],
-    #                 cmap=cmap, brain=brain_name, comments="warped",
-    #                 execution_log_html_filename=make_nipype_execution_log_html(
-    #                     warped_tpms["mwgm"] or warped_tpms["mwwm"] or
-    #                     warped_tpms["mwcsf"],
-    #                     "Segment", self.reports_output_dir) if log else None,
-    #                 results_gallery=self.results_gallery,
-    #                 tooltip=segment_tooltip)
-    #             if 'func' in brain_name or not self.func:
-    #                 self.final_thumbnail.img.src = thumbs['axial']
-
-    #         # log execution
-    #         if log:
-    #             execution_log_html = None
-    #             if nipype:
-    #                 execution_log_html = make_nipype_execution_log_html(
-    #                     brain, "Normalization", self.reports_output_dir,
-    #                     brain_name)
-    #             self.progress_logger.log(
-    #                 "<b>Normalization of %s</b><br/>" % brain_name)
-    #             if execution_log_html:
-    #                 text = open(execution_log_html).read()
-    #                 if "normalized_files" in text or "warped_files" in text:
-    #                     self.progress_logger.log(text)
-    #                     self.progress_logger.log('<hr/>')
-
-    #         # generate normalization thumbs proper
-    #         thumbs = generate_normalization_thumbnails(
-    #             brain, self.reports_output_dir, brain=brain_name,
-    #             execution_log_html_filename=execution_log_html if log
-    #             else None, results_gallery=self.results_gallery,
-    #             tooltip=reg_tooltip)
-    #         if not segmented and ("func" in brain_name or not self.func):
-    #             self.final_thumbnail.img.src = thumbs['axial']
-
-    # def generate_smooth_thumbnails(self):
-    #     """
-    #     Generate thumbnails post-smoothing.
-    #     """
-    #     # misc
-    #     if self.func is None: return
-    #     if not self.reporting_enabled():
-    #         self.init_report()
-
-    #     # log execution
-    #     title = "func smooth"
-    #     execution_log_html = make_nipype_execution_log_html(
-    #         self.func, title, self.reports_output_dir)
-    #     self.progress_logger.log(
-    #         "%s</b><br/>" % title)
-    #     text = open(execution_log_html).read()
-    #     if "smoothed_files" in text:
-    #         self.progress_logger.log(text)
-    #     self.progress_logger.log('<hr/>')
-
-    # def generate_report(self):
-    #     """
-    #     Method invoked to generate all reports in one-go. This is useful
-    #     for generating reports out-side the preproc logic: simply populate
-    #     the func, anat (optionally realignment_params, gm, wm, csf, etc.)
-    #     fields and then fire this method.
-
-    #     """
-    #     # misc
-    #     self._set_items()
-    #     self.sanitize()
-
-    #     # report proper
-    #     self.generate_realignment_thumbnails(log=False)
-    #     self.generate_coregistration_thumbnails(log=False, comment=False)
-    #     self.generate_normalization_thumbnails(log=False)
-    #     self.finalize_report(last_stage=True)
 
     def __repr__(self):
         return repr(self.__dict__)

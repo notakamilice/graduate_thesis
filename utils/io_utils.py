@@ -705,7 +705,7 @@ def niigz2nii(ifilename, output_dir=None):
 #     return dcm2nii_result.outputs.converted_files, dcm2nii_result
 
 
-def _expand_path(path, relative_to=None):
+def expand_path(path, relative_to=None):
     """
     Expands a path, doing replacements like ~ -> $HOME, . -> cwd, etc.
 
@@ -720,7 +720,7 @@ def _expand_path(path, relative_to=None):
     if relative_to is None:
         relative_to = os.getcwd()
     else:
-        relative_to = _expand_path(relative_to)
+        relative_to = expand_path(relative_to)
         if not os.path.exists(relative_to):
             raise OSError(
                 "Reference path %s doesn't exist" % relative_to)
@@ -728,27 +728,28 @@ def _expand_path(path, relative_to=None):
     os.chdir(relative_to)
 
     _path = path
-    if _path.startswith(".."):
-        if _path == "..":
-            _path = os.path.dirname(os.getcwd())
-        else:
-            match = re.match("(?P<head>(?:\.{2}\/)+)(?P<tail>.*)", _path)
-            if match:
-                _path = os.getcwd()
-                for _ in range(len(match.group("head")) // 3):
-                    _path = os.path.dirname(_path)
-                _path = os.path.join(_path, match.group("tail"))
-            else:
-                _path = None
-    elif _path.startswith("./"):
-        _path = _path[2:]
-    elif _path.startswith("."):
-        _path = _path[1:]
-    elif _path.startswith("~"):
-        if _path == "~":
-            _path = os.environ["HOME"]
-        else:
-            _path = os.path.join(os.environ["HOME"], _path[2:])
+
+    # if _path.startswith(".."):
+    #     if _path == "..":
+    #         _path = os.path.dirname(os.getcwd())
+    #     else:
+    #         match = re.match("(?P<head>(?:\.{2}\/)+)(?P<tail>.*)", _path)
+    #         if match:
+    #             _path = os.getcwd()
+    #             for _ in range(len(match.group("head")) // 3):
+    #                 _path = os.path.dirname(_path)
+    #             _path = os.path.join(_path, match.group("tail"))
+    #         else:
+    #             _path = None
+    # elif _path.startswith("./"):
+    #     _path = _path[2:]
+    # elif _path.startswith("."):
+    #     _path = _path[1:]
+    # elif _path.startswith("~"):
+    #     if _path == "~":
+    #         _path = os.environ["HOME"]
+    #     else:
+    #         _path = os.path.join(os.environ["HOME"], _path[2:])
 
     if not _path is None:
         _path = os.path.abspath(_path)
@@ -762,21 +763,36 @@ def _expand_path(path, relative_to=None):
 def get_relative_path(ancestor, descendant):
     """
     Get's path of a file or directory (descendant) relative to another
-    directory (ancestor). For example get_relative_path("/toto/titi",
-    "/toto/titi/tata/test.txt") should return "tata/test.txt"
+    directory (ancestor). 
 
-    """
-
+    """    
     if ancestor == descendant:
         return ""
 
-    ancestor = ancestor.rstrip("/")
-    descendant = descendant.rstrip("/")
-    match = re.match(r'%s\/(.*)' % ancestor, descendant)
-    if match is None:
+    ancestor = ancestor.rstrip("\\")
+    descendant = descendant.rstrip("\\")
+    right_part = descendant[len(ancestor):].lstrip("\\")
+    if right_part is None:
         return None
     else:
-        return match.group(1)
+        return right_part
+    # match = re.match(r'%s\/(.*)' % ancestor, descendant)
+    # if match is None:
+    #     return None
+    # else:
+    #     return match.group(1)
+
+
+def get_abspath_relative_to_file(filename, ref_filename):
+    
+    assert os.path.isfile(ref_filename)
+
+    old_cwd = os.getcwd()  # save CWD
+    os.chdir(os.path.dirname(ref_filename))  # in context
+    abspath = os.path.abspath(filename)  # bing0!
+    os.chdir(old_cwd)  # restore CWD
+
+    return abspath
 
 
 def get_shape(img):
